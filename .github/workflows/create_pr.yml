@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
+      GITHUB_TOKEN: ${{ steps.get_workflow_token.}}
       APP_ID: ${{ secrets.APP_ID }}
       PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
       INSTALLATION_ID: ${{ secrets.INSTALLATION_ID }}
@@ -17,6 +18,8 @@ jobs:
     steps:
       - name: Checkout common-workflows repository
         uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.PAT}}
 
       - name: Obtain GitHub App Token
         id: obtain_token
