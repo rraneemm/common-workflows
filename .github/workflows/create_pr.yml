@@ -1,79 +1,46 @@
-name: Create and Merge PR
+name: Create PR
 
-on:
-  push:
-    branches:
-      - main
+on: push
 
 jobs:
   create-pr:
     runs-on: ubuntu-latest
-
-    env:
-      GITHUB_TOKEN: ${{ steps.get_workflow_token.}}
-      APP_ID: ${{ secrets.APP_ID }}
-      PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
-      INSTALLATION_ID: ${{ secrets.INSTALLATION_ID }}
-
     steps:
-      - name: Checkout common-workflows repository
-        uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.PAT}}
+    - name: Checkout code from common-workflows
+      uses: actions/checkout@v3  
 
-      - name: Obtain GitHub App Token
-        id: obtain_token
-        run: |
-          echo "Generating GitHub App token..."
-          token=$(curl -X POST \
-            -H "Authorization: Bearer $(echo -n "${PRIVATE_KEY}" | base64 -d | openssl rsautl -decrypt -inkey /dev/stdin | jwt-tool -c ${APP_ID})" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens \
-            | jq -r .token)
-          echo "GITHUB_TOKEN=${token}" >> $GITHUB_ENV
+    - name: Get Token
+      id: get_workflow_token
+      uses: peter-murray/workflow-application-token-action@v3
+      with:
+        application_id: ${{ vars.APP_ID }}
+        application_private_key: ${{ secrets.APP_KEY }}    
 
-      - name: Create a new branch in the gold repo
-        id: create_branch
-        run: |
-          git clone https://$GITHUB_ACTOR:${{ env.GITHUB_TOKEN }}@github.com/rraneemm/gold.git
-          cd gold
-          git checkout -b new-feat-branch
-          echo "Some Changes" > new-file.txt
-          git add .
-          git commit -m "Adding new file"
-          git push origin new-feat-branch
+    - name: Checkout gold repository
+      uses: actions/checkout@v3
+      with:
+        repository: rraneemm/gold
+        token: ${{ steps.get_workflow_token.outputs.token }}
+        ref: main  
 
-      - name: Authenticate Using GitHubApp and Create/Merge PR
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const { createAppAuth } = require("@octokit/auth-app");
-            const { Octokit } = require("@octokit/core");
+    - name: Generate random number
+      id: random
+      run: echo "value=$RANDOM" >> $GITHUB_ENV 
 
-            const auth = createAppAuth({
-              appId: process.env.APP_ID,
-              privateKey: process.env.PRIVATE_KEY,
-              installationId: process.env.INSTALLATION_ID
-            });
+    - name: Create file with random number
+      run: echo "${{ env.value }}" > random_number${{ env.value }}.txt  
+      
+    - name: Commit and push new file
+      run: |
+        git config user.name "rraneemm"
+        git config user.email "ranyseleem@gmail.com"
+        git checkout -b post-${{ env.value }} 
+        git add random_number${{ env.value }}.txt
+        git commit -m "New post with random number"
+        git push origin post-${{ env.value }}
 
-            const octokit = new Octokit({ auth: auth });
-
-            // Create a pull request
-            const pr = await octokit.request('POST /repos/rraneemm/gold/pulls', {
-              owner: 'rraneemm',
-              repo: 'gold',
-              head: 'new-feat-branch',
-              base: 'main',
-              title: 'Automated PR from GitHub Actions',
-              body: 'This is an automated PR created by a GitHub Action workflow.',
-              maintainer_can_modify: true
-            });
-
-            // Merge the pull request
-            await octokit.request('PUT /repos/rraneemm/gold/pulls/{pull_number}/merge', {
-              owner: 'rraneemm',
-              repo: 'gold',
-              pull_number: pr.data.number,
-              merge_method: 'merge'
-            });
-
+    - name: Create pull request
+      run: gh pr create -B main -H post-${{ env.value }} --title 'Merge branch with random number file' --body 'Created by GitHub action'
+      env:
+        GITHUB_TOKEN: ${{ steps.get_workflow_token.outputs.token }}
+	
