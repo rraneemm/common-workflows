@@ -1,46 +1,65 @@
-name: Create PR
+name: Create and Merge PR
 
-on: push
+on:
+  push:
+    branches:
+      - main
 
 jobs:
   create-pr:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code from common-workflows
-      uses: actions/checkout@v3  
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.PAT }}
 
-    - name: Get Token
-      id: get_workflow_token
-      uses: peter-murray/workflow-application-token-action@v3
-      with:
-        application_id: ${{ vars.APP_ID }}
-        application_private_key: ${{ secrets.APP_KEY }}    
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y jq curl
 
-    - name: Checkout gold repository
-      uses: actions/checkout@v3
-      with:
-        repository: rraneemm/gold
-        token: ${{ steps.get_workflow_token.outputs.token }}
-        ref: main  
+      - name: Set up Git
+        run: |
+          git config --global user.email "ranyseleem@gmail.com"
+          git config --global user.name "rraneemm"
 
-    - name: Generate random number
-      id: random
-      run: echo "value=$RANDOM" >> $GITHUB_ENV 
+      - name: Create a PR on the gold repo
+        env:
+          GITHUB_APP_ID: ${{ secrets.APP_ID }}
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          APP_INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
+          REPO_NAME: gold
+          BRANCH_NAME: update-branch
+          PR_TITLE: "Automated PR from common-workflows"
+          PR_BODY: "This PR was created automatically by GitHub Actions."
+        run: |
+          # Get a JWT token
+          JWT=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d '{"iat":'$(date +%s)',"exp":'$(($(date +%s) + 600))',"iss":"'$GITHUB_APP_ID'"}' \
+            https://api.github.com/app/installations/$APP_INSTALLATION_ID/access_tokens \
+            -H "Authorization: Bearer $(echo $APP_PRIVATE_KEY | tr -d '\n')" | jq -r .token)
 
-    - name: Create file with random number
-      run: echo "${{ env.value }}" > random_number${{ env.value }}.txt  
-      
-    - name: Commit and push new file
-      run: |
-        git config user.name "rraneemm"
-        git config user.email "ranyseleem@gmail.com"
-        git checkout -b post-${{ env.value }} 
-        git add random_number${{ env.value }}.txt
-        git commit -m "New post with random number"
-        git push origin post-${{ env.value }}
+          # Create a new branch and commit changes
+          git checkout -b $BRANCH_NAME
+          echo "Some changes" > newfile.txt
+          git add newfile.txt
+          git commit -m "Add new file"
 
-    - name: Create pull request
-      run: gh pr create -B main -H post-${{ env.value }} --title 'Merge branch with random number file' --body 'Created by GitHub action'
-      env:
-        GITHUB_TOKEN: ${{ steps.get_workflow_token.outputs.token }}
-	
+          # Push the branch
+          git push https://github.com/Hashemjr/common-workflows.git $BRANCH_NAME
+
+          # Create a PR
+          PR_NUMBER=$(curl -s -X POST \
+            -H "Authorization: Bearer $JWT" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d '{"title":"'$PR_TITLE'","body":"'$PR_BODY'","head":"'$BRANCH_NAME'","base":"main"}' \
+            https://api.github.com/repos/$REPO_NAME/pulls | jq -r .number)
+
+          # Merge the PR
+          curl -s -X PUT \
+            -H "Authorization: Bearer $JWT" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -d '{"merge_method":"merge"}' \
+            https://api.github.com/repos/$REPO_NAME/pulls/$PR_NUMBER/merge
