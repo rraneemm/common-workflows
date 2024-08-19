@@ -1,4 +1,4 @@
-name: Create and Merge PR 
+name: Create and Merge PR
 
 on:
   push:
@@ -12,16 +12,27 @@ jobs:
     env:
       APP_ID: ${{ secrets.APP_ID }}
       PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
-      INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
+      INSTALLATION_ID: ${{ secrets.INSTALLATION_ID }}
 
     steps:
       - name: Checkout common-workflows repository
         uses: actions/checkout@v3
 
+      - name: Obtain GitHub App Token
+        id: obtain_token
+        run: |
+          echo "Generating GitHub App token..."
+          token=$(curl -X POST \
+            -H "Authorization: Bearer $(echo -n "${PRIVATE_KEY}" | base64 -d | openssl rsautl -decrypt -inkey /dev/stdin | jwt-tool -c ${APP_ID})" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens \
+            | jq -r .token)
+          echo "GITHUB_TOKEN=${token}" >> $GITHUB_ENV
+
       - name: Create a new branch in the gold repo
         id: create_branch
         run: |
-          git clone https://github.com/rraneemm/gold.git
+          git clone https://$GITHUB_ACTOR:${{ env.GITHUB_TOKEN }}@github.com/rraneemm/gold.git
           cd gold
           git checkout -b new-feat-branch
           echo "Some Changes" > new-file.txt
@@ -29,7 +40,7 @@ jobs:
           git commit -m "Adding new file"
           git push origin new-feat-branch
 
-      - name: Authenticate Using GitHubApp
+      - name: Authenticate Using GitHubApp and Create/Merge PR
         uses: actions/github-script@v6
         with:
           script: |
