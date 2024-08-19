@@ -1,0 +1,64 @@
+name: Create and Merge PR 
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+
+    env:
+      APP_ID: ${{ secrets.APP_ID }}
+      PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+      INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
+
+    steps:
+      - name: Checkout common-workflows repository
+        uses: actions/checkout@v3
+
+      - name: Create a new branch in the gold repo
+        id: create_branch
+        run: |
+          git clone https://github.com/rraneemm/gold.git
+          cd gold
+          git checkout -b new-feat-branch
+          echo "Some Changes" > new-file.txt
+          git add .
+          git commit -m "Adding new file"
+          git push origin new-feat-branch
+
+      - name: Authenticate Using GitHubApp
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { createAppAuth } = require("@octokit/auth-app");
+            const { Octokit } = require("@octokit/core");
+
+            const auth = createAppAuth({
+              appId: process.env.APP_ID,
+              privateKey: process.env.PRIVATE_KEY,
+              installationId: process.env.INSTALLATION_ID
+            });
+
+            const octokit = new Octokit({ auth: auth });
+
+            // Create a pull request
+            const pr = await octokit.request('POST /repos/rraneemm/gold/pulls', {
+              owner: 'rraneemm',
+              repo: 'gold',
+              head: 'new-feat-branch',
+              base: 'main',
+              title: 'Automated PR from GitHub Actions',
+              body: 'This is an automated PR created by a GitHub Action workflow.',
+              maintainer_can_modify: true
+            });
+
+            // Merge the pull request
+            await octokit.request('PUT /repos/rraneemm/gold/pulls/{pull_number}/merge', {
+              owner: 'rraneemm',
+              repo: 'gold',
+              pull_number: pr.data.number,
+              merge_method: 'merge'
+            });
